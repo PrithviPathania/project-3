@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nutritional Insights - Login</title>
+    <!-- Tailwind CSS CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.0.0/dist/tailwind.min.css" rel="stylesheet">
+    <!-- Supabase JS v2 CDN + shared project config -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="./supabase-config.js"></script>
+</head>
+
+<body class="bg-gray-100 min-h-screen flex flex-col">
+
+    <header class="bg-blue-600 p-4 text-white">
+        <div class="container mx-auto">
+            <h1 class="text-3xl font-semibold">Nutritional Insights</h1>
+        </div>
+    </header>
+
+    <main class="container mx-auto p-6 flex-grow">
+        <!-- Login / Register card -->
+        <div id="authCard" class="max-w-md mx-auto mt-12 bg-white p-6 shadow-lg rounded-lg">
+            <h2 class="text-2xl font-semibold mb-1 text-center">Welcome</h2>
+            <p class="text-sm text-gray-600 mb-6 text-center">Log in or create an account to view the dashboard.</p>
+
+            <div class="flex mb-6 border-b">
+                <button id="tabLogin" type="button"
+                    class="flex-1 py-2 font-medium border-b-2 border-blue-600 text-blue-600">Login</button>
+                <button id="tabRegister" type="button"
+                    class="flex-1 py-2 font-medium border-b-2 border-transparent text-gray-500">Register</button>
+            </div>
+
+            <form id="loginForm" class="space-y-4">
+                <div>
+                    <label for="loginEmail" class="block text-sm text-gray-600">Email</label>
+                    <input id="loginEmail" type="email" required autocomplete="email"
+                        class="p-2 border rounded w-full">
+                </div>
+                <div>
+                    <label for="loginPassword" class="block text-sm text-gray-600">Password</label>
+                    <input id="loginPassword" type="password" required autocomplete="current-password"
+                        class="p-2 border rounded w-full">
+                </div>
+                <button type="submit"
+                    class="w-full bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700 font-medium">Sign In</button>
+            </form>
+
+            <form id="registerForm" class="space-y-4 hidden">
+                <div>
+                    <label for="registerName" class="block text-sm text-gray-600">Full Name</label>
+                    <input id="registerName" type="text" required autocomplete="name" class="p-2 border rounded w-full">
+                </div>
+                <div>
+                    <label for="registerEmail" class="block text-sm text-gray-600">Email</label>
+                    <input id="registerEmail" type="email" required autocomplete="email"
+                        class="p-2 border rounded w-full">
+                </div>
+                <div>
+                    <label for="registerPassword" class="block text-sm text-gray-600">Password (min 6 characters)</label>
+                    <input id="registerPassword" type="password" required minlength="6" autocomplete="new-password"
+                        class="p-2 border rounded w-full">
+                </div>
+                <button type="submit"
+                    class="w-full bg-green-600 text-white py-2 px-4 rounded hover:bg-green-700 font-medium">Create
+                    Account</button>
+            </form>
+
+            <div class="flex items-center my-6">
+                <div class="flex-grow border-t"></div>
+                <span class="px-3 text-xs text-gray-500 uppercase">or continue with</span>
+                <div class="flex-grow border-t"></div>
+            </div>
+
+            <div class="space-y-3">
+                <button id="btnGoogle" type="button"
+                    class="w-full bg-white border border-gray-300 text-gray-700 py-2 px-4 rounded hover:bg-gray-50 font-medium">Continue
+                    with Google</button>
+                <button id="btnGithub" type="button"
+                    class="w-full bg-gray-900 text-white py-2 px-4 rounded hover:bg-gray-800 font-medium">Continue with
+                    GitHub</button>
+            </div>
+
+            <p id="authMessage" class="hidden text-sm mt-4 text-center"></p>
+        </div>
+
+        <!-- TOTP 2FA challenge (shown only for users who enabled 2FA) -->
+        <div id="mfaCard" class="hidden max-w-md mx-auto mt-12 bg-white p-6 shadow-lg rounded-lg">
+            <h2 class="text-2xl font-semibold mb-1 text-center">Two-Factor Authentication</h2>
+            <p class="text-sm text-gray-600 mb-6 text-center">Enter the 6-digit code from your authenticator app.</p>
+            <form id="mfaForm" class="space-y-4">
+                <input id="mfaCode" type="text" inputmode="numeric" autocomplete="one-time-code" maxlength="6"
+                    required placeholder="123456" class="p-2 border rounded w-full text-center tracking-widest text-lg">
+                <button type="submit"
+                    class="w-full bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700 font-medium">Verify</button>
+                <button id="btnMfaCancel" type="button"
+                    class="w-full bg-gray-200 text-gray-700 py-2 px-4 rounded hover:bg-gray-300 font-medium">Cancel &amp;
+                    Sign Out</button>
+            </form>
+            <p id="mfaMessage" class="hidden text-sm mt-4 text-center"></p>
+        </div>
+    </main>
+
+    <footer class="bg-blue-600 p-4 text-white text-center mt-10">
+        <p>&copy; 2025 Nutritional Insights. All Rights Reserved.</p>
+    </footer>
+
+    <script>
+        const authCard = document.getElementById("authCard");
+        const mfaCard = document.getElementById("mfaCard");
+        const loginForm = document.getElementById("loginForm");
+        const registerForm = document.getElementById("registerForm");
+        const tabLogin = document.getElementById("tabLogin");
+        const tabRegister = document.getElementById("tabRegister");
+        let mfaFactorId = null;
+
+        function showMessage(elId, text, isError = false) {
+            const el = document.getElementById(elId);
+            el.textContent = text;
+            el.classList.toggle("hidden", !text);
+            el.classList.toggle("text-red-600", isError);
+            el.classList.toggle("text-green-600", !isError);
+        }
+
+        function goToDashboard() {
+            window.location.replace("dashboard.html");
+        }
+
+        // After any successful login: ask for the TOTP code if the user enabled 2FA, else open the dashboard
+        async function routeAfterLogin() {
+            if (await needsMfaChallenge()) {
+                await showMfaCard();
+            } else {
+                goToDashboard();
+            }
+        }
+
+        // ---------------- Tabs ----------------
+
+        function selectTab(showLogin) {
+            loginForm.classList.toggle("hidden", !showLogin);
+            registerForm.classList.toggle("hidden", showLogin);
+            tabLogin.className = "flex-1 py-2 font-medium border-b-2 " +
+                (showLogin ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500");
+            tabRegister.className = "flex-1 py-2 font-medium border-b-2 " +
+                (!showLogin ? "border-blue-600 text-blue-600" : "border-transparent text-gray-500");
+            showMessage("authMessage", "");
+        }
+        tabLogin.addEventListener("click", () => selectTab(true));
+        tabRegister.addEventListener("click", () => selectTab(false));
+
+        // ---------------- Email / Password ----------------
+
+        loginForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            showMessage("authMessage", "Signing in...");
+            const { error } = await supabaseClient.auth.signInWithPassword({
+                email: document.getElementById("loginEmail").value.trim(),
+                password: document.getElementById("loginPassword").value
+            });
+            if (error) {
+                showMessage("authMessage", error.message, true);
+                return;
+            }
+            try {
+                await routeAfterLogin();
+            } catch (err) {
+                showMessage("authMessage", err.message, true);
+            }
+        });
+
+        registerForm.addEventListener("submit", async (e) => {
+            e.preventDefault();
+            showMessage("authMessage", "Creating account...");
+            const { data, error } = await supabaseClient.auth.signUp({
+                email: document.getElementById("registerEmail").value.trim(),
+                password: document.getElementById("registerPassword").value,
+                options: { data: { full_name: document.getElementById("registerName").value.trim() } }
+            });
+            if (error) {
+                showMessage("authMessage", error.message, true);
+                return;
+            }
+            if (data.session) {
+                goToDashboard(); // new accounts have no 2FA yet
+            } else {
+                selectTab(true);
+                showMessage("authMessage", "Account created. Please log in.");
+            }
+        });
+
+        // ---------------- OAuth (Google / GitHub) ----------------
+
+        async function startOAuth(provider) {
+            const { error } = await supabaseClient.auth.signInWithOAuth({
+                provider,
+                options: { redirectTo: new URL("dashboard.html", window.location.href).href }
+            });
+            if (error) showMessage("authMessage", error.message, true);
+        }
+        document.getElementById("btnGoogle").addEventListener("click", () => startOAuth("google"));
+        document.getElementById("btnGithub").addEventListener("click", () => startOAuth("github"));
+
+        // ---------------- TOTP 2FA challenge ----------------
+
+        async function showMfaCard() {
+            const { data, error } = await supabaseClient.auth.mfa.listFactors();
+            if (error) throw error;
+            const factor = (data.totp || []).find(f => f.status === "verified");
+            if (!factor) {
+                goToDashboard();
+                return;
+            }
+            mfaFactorId = factor.id;
+            authCard.classList.add("hidden");
+            mfaCard.classList.remove("hidden");
+            document.getElementById("mfaCode").focus();
+        }
+
+        document.getElementById("mfaForm").addEventListener("submit", async (e) => {
+            e.preventDefault();
+            const code = document.getElementById("mfaCode").value.trim();
+            if (!/^\d{6}$/.test(code)) {
+                showMessage("mfaMessage", "Enter the 6-digit code from your authenticator app.", true);
+                return;
+            }
+            showMessage("mfaMessage", "Verifying...");
+            const { data: challenge, error: challengeError } =
+                await supabaseClient.auth.mfa.challenge({ factorId: mfaFactorId });
+            if (challengeError) {
+                showMessage("mfaMessage", challengeError.message, true);
+                return;
+            }
+            const { error: verifyError } = await supabaseClient.auth.mfa.verify({
+                factorId: mfaFactorId,
+                challengeId: challenge.id,
+                code
+            });
+            if (verifyError) {
+                showMessage("mfaMessage", verifyError.message, true);
+                return;
+            }
+            goToDashboard(); // session is now aal2
+        });
+
+        document.getElementById("btnMfaCancel").addEventListener("click", async () => {
+            await supabaseClient.auth.signOut();
+            mfaFactorId = null;
+            document.getElementById("mfaCode").value = "";
+            showMessage("mfaMessage", "");
+            mfaCard.classList.add("hidden");
+            authCard.classList.remove("hidden");
+        });
+
+        // ---------------- Already logged in? ----------------
+
+        (async () => {
+            try {
+                const { data: { session } } = await supabaseClient.auth.getSession();
+                if (session) await routeAfterLogin();
+            } catch (err) {
+                showMessage("authMessage", err.message, true);
+            }
+        })();
+    </script>
+</body>
+
+</html>

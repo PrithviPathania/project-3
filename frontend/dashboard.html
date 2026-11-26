@@ -1,0 +1,848 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nutritional Insights</title>
+    <!-- Tailwind CSS CDN -->
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.0.0/dist/tailwind.min.css" rel="stylesheet">
+    <!-- Chart.js CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4"></script>
+    <!-- Supabase JS v2 CDN + shared project config -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="./supabase-config.js"></script>
+</head>
+
+<body class="bg-gray-100">
+    <!-- Hidden until the Supabase session (and 2FA, if enabled) is confirmed -->
+    <div id="appShell" class="hidden">
+
+    <header class="bg-blue-600 p-4 text-white">
+        <div class="container mx-auto flex flex-wrap items-center justify-between gap-4">
+            <h1 class="text-3xl font-semibold">Nutritional Insights</h1>
+            <div id="userNav" class="flex items-center gap-4">
+                <span class="text-sm">Welcome, <strong id="userDisplayName">User</strong></span>
+                <button id="btnLogout"
+                    class="bg-white text-blue-600 hover:bg-gray-100 font-medium text-sm py-1.5 px-3 rounded">Logout</button>
+            </div>
+        </div>
+    </header>
+
+    <main class="container mx-auto p-6">
+        <section class="mb-8">
+            <h2 class="text-2xl font-semibold mb-4">Explore Nutritional Insights</h2>
+
+            <!-- Metadata strip: populated after data loads -->
+            <div id="metaBar" class="hidden grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+                <div class="bg-white p-3 shadow rounded-lg text-center">
+                    <p class="text-xs text-gray-500 uppercase">Recipes Processed</p>
+                    <p id="metaTotalRecipes" class="text-xl font-semibold text-blue-600">-</p>
+                </div>
+                <div class="bg-white p-3 shadow rounded-lg text-center">
+                    <p class="text-xs text-gray-500 uppercase">Highest Protein Diet</p>
+                    <p id="metaHighestProtein" class="text-xl font-semibold text-blue-600">-</p>
+                </div>
+                <div class="bg-white p-3 shadow rounded-lg text-center">
+                    <p class="text-xs text-gray-500 uppercase">Execution Time</p>
+                    <p id="metaExecutionTime" class="text-xl font-semibold text-blue-600">-</p>
+                </div>
+                <div class="bg-white p-3 shadow rounded-lg text-center">
+                    <p class="text-xs text-gray-500 uppercase">Last Refreshed</p>
+                    <p id="metaLastRefreshed" class="text-xl font-semibold text-blue-600">-</p>
+                </div>
+            </div>
+
+            <!-- Loading / error status -->
+            <p id="dashboardStatus" class="text-sm text-gray-600 mb-4">Loading dashboard data...</p>
+
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="bg-white p-4 shadow-lg rounded-lg">
+                    <h3 class="font-semibold">Bar Chart</h3>
+                    <p class="text-sm text-gray-600">Average macronutrient content by diet type.</p>
+                    <div class="relative w-full h-64">
+                        <canvas id="barChart"></canvas>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 shadow-lg rounded-lg">
+                    <h3 class="font-semibold">Scatter Plot</h3>
+                    <p class="text-sm text-gray-600">Top 5 protein-rich recipes: Cuisine Type vs Protein(g), colored by
+                        Diet Type.</p>
+                    <div class="relative w-full h-64">
+                        <canvas id="scatterPlot"></canvas>
+                    </div>
+                </div>
+
+                <div class="bg-white p-4 shadow-lg rounded-lg">
+                    <h3 class="font-semibold">Heatmap</h3>
+                    <p class="text-sm text-gray-600">Average macronutrient intensity by diet type.</p>
+                    <div id="heatmap" class="w-full h-64 overflow-auto"></div>
+                </div>
+
+                <div class="bg-white p-4 shadow-lg rounded-lg">
+                    <h3 class="font-semibold">Pie Chart</h3>
+                    <p class="text-sm text-gray-600">Recipe distribution by diet type.</p>
+                    <div class="relative w-full h-64">
+                        <canvas id="pieChart"></canvas>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <section class="mb-8">
+            <h2 class="text-2xl font-semibold mb-4">Filters and Data Interaction</h2>
+            <div class="flex flex-wrap gap-4">
+                <input type="text" id="searchInput" placeholder="Search by Diet Type"
+                    class="p-2 border rounded w-full sm:w-auto">
+                <select id="dietFilterSelect" class="p-2 border rounded w-full sm:w-auto">
+                    <option value="all">All Diet Types</option>
+                </select>
+            </div>
+            <p id="filterStatus" class="hidden text-sm text-red-600 mt-2">No diet types match the current filter.</p>
+        </section>
+
+        <section class="mb-8">
+            <h2 class="text-2xl font-semibold mb-4">API Data Interaction</h2>
+            <div class="flex flex-wrap gap-4">
+                <button id="btnInsights"
+                    class="bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700 font-medium">Refresh
+                    Dashboard Data</button>
+                <button id="btnGetRecipes"
+                    class="bg-green-600 text-white py-2 px-4 rounded hover:bg-green-700 font-medium">Get
+                    Recipes</button>
+                <button id="btnGetClusters"
+                    class="bg-purple-600 text-white py-2 px-4 rounded hover:bg-purple-700 font-medium">Get
+                    Clusters</button>
+            </div>
+
+            <!-- Connection Test Output Box -->
+            <div id="outputContainer" class="mt-4 hidden">
+                <h3 class="font-semibold text-gray-700 mb-2">Azure Function API Response:</h3>
+                <pre id="apiOutput"
+                    class="p-4 bg-gray-900 text-green-400 rounded-lg overflow-x-auto text-xs font-mono"></pre>
+            </div>
+        </section>
+
+        <!-- Clusters Section -->
+        <section id="clustersSection" class="mb-8 hidden">
+            <h2 class="text-2xl font-semibold mb-4">Nutritional Clusters Analysis</h2>
+            <p id="clustersStatus" class="text-sm text-gray-600 mb-4">Grouping recipes by caloric macronutrient
+                dominance (Protein, Carbs, Fat).</p>
+            <div id="clustersContainer" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6"></div>
+        </section>
+
+        <section class="mb-8">
+            <h2 class="text-2xl font-semibold mb-4">Recipe Results</h2>
+            <div class="flex flex-wrap gap-4 mb-4">
+                <input type="text" id="recipeSearchInput" placeholder="Search by recipe name"
+                    class="p-2 border rounded w-full sm:w-auto">
+            </div>
+            <p id="recipesStatus" class="text-sm text-gray-600 mb-4">Click "Get Recipes" to load results (honors the
+                diet type filter above and the recipe name search below).</p>
+            <div id="recipesTableContainer" class="bg-white shadow-lg rounded-lg overflow-x-auto hidden"></div>
+        </section>
+
+        <!-- Security & Compliance -->
+        <section class="mt-8">
+            <h2 class="text-2xl font-semibold mb-4">Security & Compliance</h2>
+            <div class="bg-white p-4 shadow-lg rounded-lg">
+                <h3 class="font-semibold">Security Status</h3>
+                <p class="text-sm text-gray-600">Encryption: <span class="font-semibold text-green-600">Enabled</span>
+                </p>
+                <p class="text-sm text-gray-600">Access Control: <span
+                        class="font-semibold text-green-600">Secure</span></p>
+                <p class="text-sm text-gray-600">Compliance: <span class="font-semibold text-green-600">GDPR
+                        Compliant</span></p>
+            </div>
+        </section>
+
+        <!-- OAuth / 2FA Integration -->
+        <section class="mt-8">
+            <h2 class="text-2xl font-semibold mb-4">OAuth & 2FA Integration</h2>
+            <div class="bg-white p-4 shadow-lg rounded-lg">
+                <h3 class="font-semibold">Secure Login</h3>
+                <button id="btnDashGoogle" class="bg-blue-600 text-white py-2 px-4 rounded mb-4">Login with Google</button>
+                <button id="btnDashGithub" class="bg-blue-600 text-white py-2 px-4 rounded mb-4">Login with GitHub</button>
+                <div class="mt-4">
+                    <label for="2fa" class="block text-sm text-gray-600">Enter 2FA Code</label>
+                    <input id="2fa" type="text" class="p-2 border rounded w-full" placeholder="Enter your 2FA code">
+                    <p class="text-sm text-gray-600 mt-3">2FA Status: <span id="mfaStatus"
+                            class="font-semibold text-gray-500">Checking...</span></p>
+                    <div id="mfaQrContainer" class="hidden mt-3">
+                        <p class="text-sm text-gray-600 mb-2">Scan this QR code with Google Authenticator, Authy, or
+                            Microsoft Authenticator, then enter the 6-digit code above and click Verify.</p>
+                        <img id="mfaQrImage" alt="2FA QR code" class="w-40 h-40 border rounded bg-white">
+                        <p class="text-xs text-gray-500 mt-2">Manual setup key: <code id="mfaSecret"
+                                class="break-all"></code></p>
+                    </div>
+                    <div class="flex flex-wrap gap-2 mt-3">
+                        <button id="btnEnableMfa"
+                            class="hidden bg-green-600 text-white py-2 px-4 rounded hover:bg-green-700">Enable 2FA</button>
+                        <button id="btnVerifyMfa"
+                            class="hidden bg-blue-600 text-white py-2 px-4 rounded hover:bg-blue-700">Verify &amp; Activate
+                            2FA</button>
+                        <button id="btnDisableMfa"
+                            class="hidden bg-red-600 text-white py-2 px-4 rounded hover:bg-red-700">Disable 2FA</button>
+                    </div>
+                    <p id="mfaMessage" class="hidden text-sm mt-2"></p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Cloud Resource Cleanup -->
+        <section class="mt-8">
+            <h2 class="text-2xl font-semibold mb-4">Cloud Resource Cleanup</h2>
+            <div class="bg-white p-4 shadow-lg rounded-lg">
+                <p class="text-sm text-gray-600">Ensure that cloud resources are efficiently managed and cleaned up
+                    post-deployment.</p>
+                <button class="bg-red-600 text-white py-2 px-4 rounded">Clean Up Resources</button>
+            </div>
+        </section>
+
+
+        <section>
+            <h2 class="text-2xl font-semibold mb-4">Pagination</h2>
+            <div class="flex items-center justify-center gap-4 mt-4">
+                <button id="btnPrevPage" class="px-3 py-1 bg-gray-300 rounded hover:bg-gray-400 disabled:opacity-50"
+                    disabled>Previous</button>
+                <span id="paginationLabel" class="text-sm text-gray-700">No recipes loaded yet.</span>
+                <button id="btnNextPage" class="px-3 py-1 bg-gray-300 rounded hover:bg-gray-400 disabled:opacity-50"
+                    disabled>Next</button>
+            </div>
+        </section>
+    </main>
+
+    <footer class="bg-blue-600 p-4 text-white text-center mt-10">
+        <p>&copy; 2025 Nutritional Insights. All Rights Reserved.</p>
+    </footer>
+    </div>
+
+    <!-- Dashboard Data + Chart Rendering Script -->
+    <script>
+        const API_BASE = "https://proj3-fahegabaahhmffab.canadacentral-01.azurewebsites.net/api";
+        const NUTRITION_API_URL = API_BASE + "/nutrition";
+        const RECIPES_API_URL = API_BASE + "/recipes";
+        const CLUSTERS_API_URL = API_BASE + "/clusters";
+        const RECIPES_PAGE_SIZE = 10;
+
+        // Consistent color per diet type across all charts
+        const PALETTE = ["#2563eb", "#16a34a", "#dc2626", "#d97706", "#7c3aed", "#0891b2", "#db2777"];
+        const dietColors = {};
+        function colorForDiet(dietType) {
+            if (!(dietType in dietColors)) {
+                dietColors[dietType] = PALETTE[Object.keys(dietColors).length % PALETTE.length];
+            }
+            return dietColors[dietType];
+        }
+
+        let barChartInstance = null;
+        let scatterChartInstance = null;
+        let pieChartInstance = null;
+        let lastData = null; // full, unfiltered API response, cached for client-side filtering
+        let recipesPage = 1;
+        let recipesTotalPages = 1;
+        let recipesLoaded = false; // becomes true after the first successful "Get Recipes" click
+
+        // Bar chart: average macronutrients (Protein/Carbs/Fat) per diet type
+        function renderBarChart(avgMacros) {
+            const ctx = document.getElementById("barChart").getContext("2d");
+            const labels = avgMacros.map(d => d.Diet_type);
+
+            if (barChartInstance) barChartInstance.destroy();
+            barChartInstance = new Chart(ctx, {
+                type: "bar",
+                data: {
+                    labels,
+                    datasets: [
+                        { label: "Protein (g)", data: avgMacros.map(d => d["Protein(g)"]), backgroundColor: "#2563eb" },
+                        { label: "Carbs (g)", data: avgMacros.map(d => d["Carbs(g)"]), backgroundColor: "#16a34a" },
+                        { label: "Fat (g)", data: avgMacros.map(d => d["Fat(g)"]), backgroundColor: "#d97706" }
+                    ]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: "bottom" } },
+                    scales: { y: { beginAtZero: true, title: { display: true, text: "grams" } } }
+                }
+            });
+        }
+
+        // Scatter plot: Cuisine_type (x) vs Protein(g) (y), one dataset per Diet_type (hue),
+        // mirroring the original sns.scatterplot(data=top_protein, x='Cuisine_type', y='Protein(g)', hue='Diet_type')
+        function renderScatterChart(topProteinRecipes) {
+            const ctx = document.getElementById("scatterPlot").getContext("2d");
+
+            const byDiet = {};
+            topProteinRecipes.forEach(r => {
+                if (!byDiet[r.Diet_type]) byDiet[r.Diet_type] = [];
+                byDiet[r.Diet_type].push({ x: r.Cuisine_type, y: r["Protein(g)"] });
+            });
+
+            const datasets = Object.keys(byDiet).map(dietType => ({
+                label: dietType,
+                data: byDiet[dietType],
+                backgroundColor: colorForDiet(dietType),
+                pointRadius: 6,
+                pointHoverRadius: 8
+            }));
+
+            if (scatterChartInstance) scatterChartInstance.destroy();
+            scatterChartInstance = new Chart(ctx, {
+                type: "scatter",
+                data: { datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: "bottom" } },
+                    scales: {
+                        x: { type: "category", title: { display: true, text: "Cuisine Type" }, ticks: { autoSkip: false } },
+                        y: { title: { display: true, text: "Protein (g)" } }
+                    }
+                }
+            });
+        }
+
+        // Pie chart: share of recipes per diet type
+        function renderPieChart(dietDistribution) {
+            const ctx = document.getElementById("pieChart").getContext("2d");
+            const labels = Object.keys(dietDistribution);
+            const data = Object.values(dietDistribution);
+
+            if (pieChartInstance) pieChartInstance.destroy();
+            pieChartInstance = new Chart(ctx, {
+                type: "pie",
+                data: {
+                    labels,
+                    datasets: [{ data, backgroundColor: labels.map(colorForDiet) }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: { legend: { position: "bottom" } }
+                }
+            });
+        }
+
+        // Heatmap: average macronutrient intensity grid, mirroring sns.heatmap(avg_macros, annot=True)
+        function renderHeatmap(avgMacros) {
+            const container = document.getElementById("heatmap");
+            const macroKeys = ["Protein(g)", "Carbs(g)", "Fat(g)"];
+            const maxByMacro = {};
+            macroKeys.forEach(k => {
+                maxByMacro[k] = Math.max(...avgMacros.map(d => d[k]));
+            });
+
+            let html = '<table class="w-full text-xs text-center border-collapse">';
+            html += '<thead><tr><th class="p-1 text-left">Diet Type</th>' +
+                macroKeys.map(k => `<th class="p-1">${k}</th>`).join('') + '</tr></thead><tbody>';
+
+            avgMacros.forEach(d => {
+                html += `<tr><td class="p-1 text-left font-medium">${d.Diet_type}</td>`;
+                macroKeys.forEach(k => {
+                    const ratio = maxByMacro[k] ? d[k] / maxByMacro[k] : 0;
+                    const alpha = (0.15 + ratio * 0.7).toFixed(2);
+                    html += `<td class="p-1" style="background-color: rgba(37, 99, 235, ${alpha}); color: ${ratio > 0.55 ? 'white' : 'black'}">${d[k]}</td>`;
+                });
+                html += '</tr>';
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function updateMetaBar(data) {
+            document.getElementById("metaBar").classList.remove("hidden");
+            document.getElementById("metaTotalRecipes").textContent = data.total_recipes_processed ?? "-";
+            document.getElementById("metaHighestProtein").textContent = data.highest_protein_diet ?? "-";
+            document.getElementById("metaExecutionTime").textContent = (data.execution_time_seconds ?? "-") + "s";
+            document.getElementById("metaLastRefreshed").textContent = new Date().toLocaleTimeString();
+        }
+
+        // Fill the diet-type dropdown with the diet types actually present in the data
+        function populateDietFilterOptions(data) {
+            const select = document.getElementById("dietFilterSelect");
+            const existing = new Set(Array.from(select.options).map(o => o.value));
+
+            Object.keys(data.diet_distribution).sort().forEach(dietType => {
+                if (existing.has(dietType)) return;
+                const option = document.createElement("option");
+                option.value = dietType;
+                option.textContent = dietType.charAt(0).toUpperCase() + dietType.slice(1);
+                select.appendChild(option);
+            });
+        }
+
+        // A diet type passes the current filter if it matches the dropdown selection
+        // (or "all") AND contains the search text (case-insensitive)
+        function dietPassesFilter(dietType, selectedDiet, searchText) {
+            const matchesDropdown = selectedDiet === "all" || dietType === selectedDiet;
+            const matchesSearch = !searchText || dietType.toLowerCase().includes(searchText);
+            return matchesDropdown && matchesSearch;
+        }
+
+        // Re-render all four charts using only diet types that pass the current filter
+        function applyFilters() {
+            if (!lastData) return;
+
+            const selectedDiet = document.getElementById("dietFilterSelect").value;
+            const searchText = document.getElementById("searchInput").value.trim().toLowerCase();
+            const passes = dietType => dietPassesFilter(dietType, selectedDiet, searchText);
+
+            const filteredAvgMacros = lastData.average_macronutrients.filter(d => passes(d.Diet_type));
+            const filteredTopProtein = lastData.top_protein_recipes.filter(r => passes(r.Diet_type));
+            const filteredDietDistribution = Object.fromEntries(
+                Object.entries(lastData.diet_distribution).filter(([dietType]) => passes(dietType))
+            );
+
+            const filterStatus = document.getElementById("filterStatus");
+            if (filteredAvgMacros.length === 0) {
+                filterStatus.classList.remove("hidden");
+                return; // keep the last valid charts on screen rather than rendering empty ones
+            }
+            filterStatus.classList.add("hidden");
+
+            renderBarChart(filteredAvgMacros);
+            renderScatterChart(filteredTopProtein);
+            renderHeatmap(filteredAvgMacros);
+            renderPieChart(filteredDietDistribution);
+
+            // Keep the recipe list in sync with the active filters, if it's already been loaded
+            if (recipesLoaded) {
+                loadRecipes(1);
+            }
+        }
+
+        // Build the /recipes query string: diet type comes from the shared dropdown,
+        // while recipe-name search uses its own dedicated input (distinct from the
+        // diet-type search box above, which only affects the charts)
+        function buildRecipesUrl(page) {
+            const params = new URLSearchParams();
+            const selectedDiet = document.getElementById("dietFilterSelect").value;
+            const recipeSearchText = document.getElementById("recipeSearchInput").value.trim();
+
+            if (selectedDiet && selectedDiet !== "all") params.set("diet_type", selectedDiet);
+            if (recipeSearchText) params.set("search", recipeSearchText);
+            params.set("page", page);
+            params.set("page_size", RECIPES_PAGE_SIZE);
+
+            return `${RECIPES_API_URL}?${params.toString()}`;
+        }
+
+        function renderRecipesTable(recipes) {
+            const container = document.getElementById("recipesTableContainer");
+
+            if (recipes.length === 0) {
+                container.innerHTML = '<p class="p-4 text-sm text-gray-600">No recipes found for the current filters.</p>';
+                return;
+            }
+
+            let html = '<table class="w-full text-sm text-left">';
+            html += '<thead class="bg-gray-100"><tr>' +
+                '<th class="p-2">Diet Type</th><th class="p-2">Recipe Name</th><th class="p-2">Cuisine Type</th>' +
+                '<th class="p-2">Protein (g)</th><th class="p-2">Carbs (g)</th><th class="p-2">Fat (g)</th></tr></thead><tbody>';
+
+            recipes.forEach(r => {
+                html += `<tr class="border-t">
+                    <td class="p-2">${r.Diet_type}</td>
+                    <td class="p-2">${r.Recipe_name}</td>
+                    <td class="p-2">${r.Cuisine_type ?? "-"}</td>
+                    <td class="p-2">${r["Protein(g)"]}</td>
+                    <td class="p-2">${r["Carbs(g)"]}</td>
+                    <td class="p-2">${r["Fat(g)"]}</td>
+                </tr>`;
+            });
+
+            html += '</tbody></table>';
+            container.innerHTML = html;
+        }
+
+        function updatePaginationControls(data) {
+            recipesPage = data.page;
+            recipesTotalPages = data.total_pages;
+
+            document.getElementById("paginationLabel").textContent =
+                `Page ${data.page} of ${data.total_pages} (${data.total_records} recipes)`;
+            document.getElementById("btnPrevPage").disabled = data.page <= 1;
+            document.getElementById("btnNextPage").disabled = data.page >= data.total_pages;
+        }
+
+        async function loadRecipes(page) {
+            const status = document.getElementById("recipesStatus");
+            const tableContainer = document.getElementById("recipesTableContainer");
+
+            status.textContent = "Loading recipes...";
+            status.classList.remove("hidden", "text-red-600");
+            status.classList.add("text-gray-600");
+
+            try {
+                const response = await authFetch(buildRecipesUrl(page));
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status} ${response.statusText}: ${errorText}`);
+                }
+                const data = await response.json();
+                if (data.status === "error") {
+                    throw new Error(data.error || "Unknown error from Azure Function.");
+                }
+
+                recipesLoaded = true;
+                renderRecipesTable(data.recipes);
+                updatePaginationControls(data);
+
+                tableContainer.classList.remove("hidden");
+                status.classList.add("hidden");
+            } catch (err) {
+                status.textContent = "Failed to load recipes: " + err.message;
+                status.classList.remove("hidden", "text-gray-600");
+                status.classList.add("text-red-600");
+            }
+        }
+
+        async function loadDashboard() {
+            const status = document.getElementById("dashboardStatus");
+            const container = document.getElementById("outputContainer");
+            const output = document.getElementById("apiOutput");
+
+            status.textContent = "Loading dashboard data...";
+            status.classList.remove("hidden", "text-red-600");
+            status.classList.add("text-gray-600");
+
+            try {
+                const response = await authFetch(NUTRITION_API_URL);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status} ${response.statusText}: ${errorText}`);
+                }
+                const data = await response.json();
+                if (data.status === "error") {
+                    throw new Error(data.error || "Unknown error from Azure Function.");
+                }
+
+                lastData = data;
+                populateDietFilterOptions(data);
+                applyFilters();
+                updateMetaBar(data);
+
+                status.classList.add("hidden");
+
+                container.classList.remove("hidden");
+                output.textContent = JSON.stringify(data, null, 2);
+            } catch (err) {
+                status.textContent = "Failed to load dashboard data: " + err.message;
+                status.classList.remove("hidden", "text-gray-600");
+                status.classList.add("text-red-600");
+            }
+        }
+
+        // Render the 4 nutritional cluster cards with badges and macro breakdowns
+        function renderClusters(clusters) {
+            const container = document.getElementById("clustersContainer");
+            container.innerHTML = "";
+
+            clusters.forEach(c => {
+                const card = document.createElement("div");
+                card.className = "bg-white p-5 shadow-lg rounded-lg border-t-4 flex flex-col justify-between";
+                card.style.borderTopColor = c.color || "#7c3aed";
+
+                const dietsList = Object.entries(c.dominant_diets || {})
+                    .map(([diet, count]) => `<span class="bg-gray-100 text-gray-700 text-xs px-2 py-0.5 rounded">${diet} (${count})</span>`)
+                    .join(" ");
+
+                const sampleList = (c.sample_recipes || [])
+                    .map(r => `<li class="truncate text-xs text-gray-600 list-disc list-inside">${r}</li>`)
+                    .join("");
+
+                card.innerHTML = `
+                    <div>
+                        <div class="flex items-center justify-between mb-2">
+                            <h3 class="font-bold text-gray-800 text-sm md:text-base">${c.cluster_name}</h3>
+                            <span class="text-xs font-semibold px-2 py-0.5 rounded" style="background-color: ${c.color}20; color: ${c.color};">
+                                ${c.recipe_count} recipes (${c.percentage_of_total}%)
+                            </span>
+                        </div>
+                        <p class="text-xs text-gray-500 mb-3">${c.description}</p>
+                        
+                        <div class="bg-gray-50 p-2.5 rounded-lg mb-3">
+                            <p class="text-xs font-semibold text-gray-600 mb-1">Average Macronutrients:</p>
+                            <div class="grid grid-cols-3 gap-1 text-center text-xs">
+                                <div class="bg-blue-50 text-blue-700 py-1 rounded">
+                                    <span class="block font-bold">${c.avg_macros["Protein(g)"]}g</span>
+                                    <span class="text-[10px] text-gray-500">Protein</span>
+                                </div>
+                                <div class="bg-green-50 text-green-700 py-1 rounded">
+                                    <span class="block font-bold">${c.avg_macros["Carbs(g)"]}g</span>
+                                    <span class="text-[10px] text-gray-500">Carbs</span>
+                                </div>
+                                <div class="bg-yellow-50 text-yellow-700 py-1 rounded">
+                                    <span class="block font-bold">${c.avg_macros["Fat(g)"]}g</span>
+                                    <span class="text-[10px] text-gray-500">Fat</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="mb-3">
+                            <p class="text-xs font-semibold text-gray-600 mb-1">Diets in Cluster:</p>
+                            <div class="flex flex-wrap gap-1">${dietsList}</div>
+                        </div>
+                    </div>
+
+                    <div class="border-t pt-2 mt-2">
+                        <p class="text-xs font-semibold text-gray-600 mb-1">${c.sample_label || "Sample Recipes"}:</p>
+                        <ul class="space-y-0.5">${sampleList}</ul>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        async function loadClusters() {
+            const section = document.getElementById("clustersSection");
+            const status = document.getElementById("clustersStatus");
+            const container = document.getElementById("outputContainer");
+            const output = document.getElementById("apiOutput");
+
+            section.classList.remove("hidden");
+            status.textContent = "Analyzing recipe clusters from Azure Function...";
+            status.classList.remove("text-red-600");
+            status.classList.add("text-gray-600");
+
+            try {
+                const response = await authFetch(CLUSTERS_API_URL);
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    throw new Error(`HTTP ${response.status} ${response.statusText}: ${errorText}`);
+                }
+                const data = await response.json();
+                if (data.status === "error") {
+                    throw new Error(data.error || "Unknown error from Azure Function.");
+                }
+
+                status.textContent = `Identified ${data.total_clusters} distinct clusters across ${data.total_recipes_analyzed} recipes in ${data.execution_time_seconds}s.`;
+                renderClusters(data.clusters);
+
+                // Update execution time badge in meta bar
+                if (data.execution_time_seconds) {
+                    document.getElementById("metaExecutionTime").textContent = data.execution_time_seconds + "s";
+                }
+
+                // Show raw JSON in the API response box
+                container.classList.remove("hidden");
+                output.textContent = JSON.stringify(data, null, 2);
+
+                // Smooth scroll to the clusters section
+                section.scrollIntoView({ behavior: "smooth" });
+            } catch (err) {
+                status.textContent = "Failed to load clusters: " + err.message;
+                status.classList.remove("text-gray-600");
+                status.classList.add("text-red-600");
+            }
+        }
+
+        document.getElementById("btnInsights").addEventListener("click", loadDashboard);
+        document.getElementById("searchInput").addEventListener("input", applyFilters);
+        document.getElementById("dietFilterSelect").addEventListener("change", applyFilters);
+        document.getElementById("btnGetRecipes").addEventListener("click", () => loadRecipes(1));
+        document.getElementById("btnGetClusters").addEventListener("click", loadClusters);
+        document.getElementById("btnPrevPage").addEventListener("click", () => {
+            if (recipesPage > 1) loadRecipes(recipesPage - 1);
+        });
+        document.getElementById("btnNextPage").addEventListener("click", () => {
+            if (recipesPage < recipesTotalPages) loadRecipes(recipesPage + 1);
+        });
+
+        // Debounce the recipe-name search so it doesn't hit the API on every keystroke
+        let recipeSearchDebounce = null;
+        document.getElementById("recipeSearchInput").addEventListener("input", () => {
+            if (!recipesLoaded) return; // nothing to re-filter until "Get Recipes" has been clicked once
+            clearTimeout(recipeSearchDebounce);
+            recipeSearchDebounce = setTimeout(() => loadRecipes(1), 300);
+        });
+
+        // ---------------- Supabase auth: session-aware API calls ----------------
+
+        // Attach the logged-in user's Supabase JWT so the Azure Functions (PyJWT) accept the request
+        async function authFetch(url) {
+            const { data: { session } } = await supabaseClient.auth.getSession();
+            if (!session) {
+                window.location.replace("index.html");
+                throw new Error("Session expired. Please log in again.");
+            }
+            const response = await fetch(url, {
+                headers: { "Authorization": `Bearer ${session.access_token}` }
+            });
+            if (response.status === 401) {
+                await supabaseClient.auth.signOut();
+                window.location.replace("index.html");
+                throw new Error("Unauthorized. Redirecting to login...");
+            }
+            return response;
+        }
+
+        // ---------------- Logout + OAuth buttons ----------------
+
+        document.getElementById("btnLogout").addEventListener("click", async () => {
+            await supabaseClient.auth.signOut();
+            window.location.replace("index.html");
+        });
+
+        async function startOAuth(provider) {
+            const { error } = await supabaseClient.auth.signInWithOAuth({
+                provider,
+                options: { redirectTo: new URL("dashboard.html", window.location.href).href }
+            });
+            if (error) setMfaMessage(error.message, true);
+        }
+        document.getElementById("btnDashGoogle").addEventListener("click", () => startOAuth("google"));
+        document.getElementById("btnDashGithub").addEventListener("click", () => startOAuth("github"));
+
+        // ---------------- Real TOTP 2FA (Supabase MFA) ----------------
+
+        let pendingFactorId = null; // factor created by "Enable 2FA" and awaiting its first code
+
+        function setMfaMessage(text, isError = false) {
+            const el = document.getElementById("mfaMessage");
+            el.textContent = text;
+            el.classList.toggle("hidden", !text);
+            el.classList.toggle("text-red-600", isError);
+            el.classList.toggle("text-green-600", !isError);
+        }
+
+        function toggle(id, show) {
+            document.getElementById(id).classList.toggle("hidden", !show);
+        }
+
+        // Reads the user's TOTP factors and updates the status badge + buttons
+        async function refreshMfaStatus() {
+            const { data, error } = await supabaseClient.auth.mfa.listFactors();
+            if (error) {
+                setMfaMessage("Could not load 2FA status: " + error.message, true);
+                return { verified: null, totpFactors: [] };
+            }
+
+            const totpFactors = (data.all || []).filter(f => f.factor_type === "totp");
+            const verified = totpFactors.find(f => f.status === "verified") || null;
+
+            const status = document.getElementById("mfaStatus");
+            status.textContent = verified ? "Enabled (TOTP Active)" : "Not Enrolled";
+            status.className = "font-semibold " + (verified ? "text-green-600" : "text-gray-500");
+
+            toggle("btnEnableMfa", !verified && !pendingFactorId);
+            toggle("btnVerifyMfa", !verified && !!pendingFactorId);
+            toggle("btnDisableMfa", !!verified);
+            if (verified) toggle("mfaQrContainer", false);
+
+            return { verified, totpFactors };
+        }
+
+        document.getElementById("btnEnableMfa").addEventListener("click", async () => {
+            setMfaMessage("");
+            try {
+                // Remove abandoned (unverified) factors from earlier attempts
+                const { totpFactors } = await refreshMfaStatus();
+                for (const f of totpFactors.filter(f => f.status !== "verified")) {
+                    await supabaseClient.auth.mfa.unenroll({ factorId: f.id });
+                }
+
+                const { data, error } = await supabaseClient.auth.mfa.enroll({
+                    factorType: "totp",
+                    friendlyName: `Nutritional Insights ${Date.now()}`
+                });
+                if (error) throw error;
+
+                pendingFactorId = data.id;
+                const qr = data.totp.qr_code;
+                document.getElementById("mfaQrImage").src = qr.startsWith("data:")
+                    ? qr
+                    : "data:image/svg+xml;utf-8," + encodeURIComponent(qr);
+                document.getElementById("mfaSecret").textContent = data.totp.secret;
+                toggle("mfaQrContainer", true);
+                await refreshMfaStatus();
+                setMfaMessage("Scan the QR code, then enter the 6-digit code and click Verify & Activate 2FA.");
+            } catch (err) {
+                setMfaMessage("Could not start 2FA enrollment: " + err.message, true);
+            }
+        });
+
+        document.getElementById("btnVerifyMfa").addEventListener("click", async () => {
+            const codeInput = document.getElementById("2fa");
+            const code = codeInput.value.trim();
+            if (!/^\d{6}$/.test(code)) {
+                setMfaMessage("Enter the 6-digit code from your authenticator app.", true);
+                return;
+            }
+            try {
+                const { data: challenge, error: challengeError } =
+                    await supabaseClient.auth.mfa.challenge({ factorId: pendingFactorId });
+                if (challengeError) throw challengeError;
+
+                const { error: verifyError } = await supabaseClient.auth.mfa.verify({
+                    factorId: pendingFactorId,
+                    challengeId: challenge.id,
+                    code
+                });
+                if (verifyError) throw verifyError;
+
+                pendingFactorId = null;
+                codeInput.value = "";
+                toggle("mfaQrContainer", false);
+                await refreshMfaStatus();
+                setMfaMessage("2FA is now enabled. You'll be asked for a code on your next login.");
+            } catch (err) {
+                setMfaMessage("Verification failed: " + err.message, true);
+            }
+        });
+
+        document.getElementById("btnDisableMfa").addEventListener("click", async () => {
+            if (!confirm("Disable two-factor authentication for your account?")) return;
+            try {
+                const { verified } = await refreshMfaStatus();
+                if (verified) {
+                    const { error } = await supabaseClient.auth.mfa.unenroll({ factorId: verified.id });
+                    if (error) throw error;
+                }
+                await supabaseClient.auth.refreshSession(); // downgrade session to aal1 immediately
+                await refreshMfaStatus();
+                setMfaMessage("2FA has been disabled.");
+            } catch (err) {
+                setMfaMessage("Could not disable 2FA: " + err.message, true);
+            }
+        });
+
+        // ---------------- Route guard: only show the dashboard to logged-in users ----------------
+
+        supabaseClient.auth.onAuthStateChange((event) => {
+            if (event === "SIGNED_OUT") window.location.replace("index.html");
+        });
+
+        async function initDashboardAuth() {
+            try {
+                // getSession() also completes OAuth redirects that land on this page
+                const { data: { session } } = await supabaseClient.auth.getSession();
+                if (!session) {
+                    window.location.replace("index.html");
+                    return;
+                }
+                // 2FA-enabled users must finish the TOTP challenge on the login page first
+                if (await needsMfaChallenge()) {
+                    window.location.replace("index.html");
+                    return;
+                }
+
+                document.getElementById("userDisplayName").textContent = getUserDisplayName(session.user);
+                document.getElementById("appShell").classList.remove("hidden");
+                loadDashboard();
+                refreshMfaStatus();
+            } catch (err) {
+                console.error("Auth check failed:", err);
+                await supabaseClient.auth.signOut();
+                window.location.replace("index.html");
+            }
+        }
+
+        initDashboardAuth();
+    </script>
+</body>
+
+</html>
